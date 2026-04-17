@@ -121,10 +121,26 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html {
     @apply font-sans;
+    -webkit-text-size-adjust: 100%;
+    /* `clip` clips overflow without establishing a scroll container, so iOS
+       Safari's visualViewport does not track a horizontal axis here. Prevents
+       residual viewport offset after Dialog scroll-lock restore. */
+    overflow-x: clip;
+  }
+  body {
+    @apply bg-background text-foreground;
+    overflow-x: clip;
+  }
+
+  /* iOS Safari zooms when a focused form field has computed font-size < 16px.
+     Force ≥16px on touch devices regardless of utility classes like `text-sm`. */
+  @media (max-width: 767px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+    textarea,
+    select {
+      font-size: 16px;
+    }
   }
 }

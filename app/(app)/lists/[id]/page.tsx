@@ -115,7 +115,7 @@ export default async function ListDetailPage({ params }: PageProps) {
   const allDoneHint = openCount === 0 && doneCount > 0;
 
   return (
-    <div className="flex flex-col min-h-dvh">
+    <div className="flex flex-col">
       <ListPageClient
         list={list}
         storeId={list.store_id}

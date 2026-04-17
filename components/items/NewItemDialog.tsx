@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { createItem } from "@/app/(app)/lists/[id]/actions";
 import { FavoriteAutocomplete } from "./FavoriteAutocomplete";
+import { QuantityStepper } from "./QuantityStepper";
 import { itemCreateSchema, type ItemCreateInput } from "@/lib/schemas/item";
 import type { Tables } from "@/types/database";
 
@@ -212,8 +213,15 @@ export function NewItemDialog({
                       field.onChange(v === NO_CATEGORY ? undefined : v)
                     }
                   >
-                    <SelectTrigger className="min-h-[44px]">
-                      <SelectValue placeholder="Keine Kategorie" />
+                    <SelectTrigger className="min-h-[44px] w-full">
+                      <SelectValue placeholder="Keine Kategorie">
+                        {(v: string) =>
+                          v === NO_CATEGORY || !v
+                            ? "Keine Kategorie"
+                            : categories.find((c) => c.id === v)?.name ??
+                              "Keine Kategorie"
+                        }
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NO_CATEGORY}>Keine Kategorie</SelectItem>
@@ -231,12 +239,17 @@ export function NewItemDialog({
             {/* Quantity + Price */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="new-quantity">Menge</Label>
-                <Input
-                  id="new-quantity"
-                  placeholder="z. B. 500g"
-                  autoComplete="off"
-                  {...register("quantity")}
+                <Label htmlFor="new-quantity">Anzahl</Label>
+                <Controller
+                  name="quantity"
+                  control={control}
+                  render={({ field }) => (
+                    <QuantityStepper
+                      id="new-quantity"
+                      value={field.value ?? undefined}
+                      onChange={field.onChange}
+                    />
+                  )}
                 />
               </div>
               <div className="space-y-1.5">

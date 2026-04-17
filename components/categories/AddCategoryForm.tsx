@@ -31,7 +31,7 @@ export function AddCategoryForm() {
         maxLength={50}
         placeholder="Neue Kategorie"
         disabled={isPending}
-        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] disabled:opacity-50"
+        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring min-h-[44px] disabled:opacity-50"
       />
       <Button type="submit" disabled={isPending} className="min-h-[44px] shrink-0">
         Hinzufügen

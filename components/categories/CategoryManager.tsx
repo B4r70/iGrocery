@@ -149,7 +149,7 @@ function CategoryRow({ category, isFirst, isLast }: CategoryRowProps) {
             onBlur={handleSave}
             onKeyDown={handleKeyDown}
             maxLength={50}
-            className="w-full rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded border border-input bg-background px-2 py-1 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         ) : (
           <button

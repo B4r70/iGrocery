@@ -42,7 +42,10 @@ export function ItemCheckbox({ itemId, listId, checked }: ItemCheckboxProps) {
           .join(" ")}
       >
         {checked && (
-          <CheckIcon className="h-3.5 w-3.5 text-primary-foreground" aria-hidden="true" />
+          <CheckIcon
+            className="h-4 w-4 text-primary-foreground stroke-[3]"
+            aria-hidden="true"
+          />
         )}
       </span>
     </button>

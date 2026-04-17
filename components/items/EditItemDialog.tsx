@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { updateItem, deleteItem } from "@/app/(app)/lists/[id]/actions";
+import { QuantityStepper } from "./QuantityStepper";
 import { itemUpdateSchema, type ItemUpdateInput } from "@/lib/schemas/item";
 import type { Tables } from "@/types/database";
 
@@ -133,8 +134,15 @@ export function EditItemDialog({
                     field.onChange(v === NO_CATEGORY ? undefined : v)
                   }
                 >
-                  <SelectTrigger className="min-h-[44px]">
-                    <SelectValue placeholder="Keine Kategorie" />
+                  <SelectTrigger className="min-h-[44px] w-full">
+                    <SelectValue placeholder="Keine Kategorie">
+                      {(v: string) =>
+                        v === NO_CATEGORY || !v
+                          ? "Keine Kategorie"
+                          : categories.find((c) => c.id === v)?.name ??
+                            "Keine Kategorie"
+                      }
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NO_CATEGORY}>Keine Kategorie</SelectItem>
@@ -152,12 +160,17 @@ export function EditItemDialog({
           {/* Quantity + Price in a row */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="edit-quantity">Menge</Label>
-              <Input
-                id="edit-quantity"
-                placeholder="z. B. 500g"
-                autoComplete="off"
-                {...register("quantity")}
+              <Label htmlFor="edit-quantity">Anzahl</Label>
+              <Controller
+                name="quantity"
+                control={control}
+                render={({ field }) => (
+                  <QuantityStepper
+                    id="edit-quantity"
+                    value={field.value ?? undefined}
+                    onChange={field.onChange}
+                  />
+                )}
               />
             </div>
             <div className="space-y-1.5">

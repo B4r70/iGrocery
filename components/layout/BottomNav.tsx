@@ -41,7 +41,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Hauptnavigation"
-      className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur"
+      className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
     >
       <ul className="flex">
         {tabs.map(({ href, label, Icon, IconActive }) => {
