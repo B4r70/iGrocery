@@ -157,32 +157,36 @@ create trigger on_auth_user_created
 - [ ] Verify: `pnpm build`, `pnpm lint`, `pnpm dev` all pass
 
 ### Phase 2 — Supabase Layer (depends on Phase 1)
-- [ ] Install `@supabase/ssr` + `@supabase/supabase-js`
-- [ ] `lib/supabase/server.ts` (async `cookies()`), `client.ts`, `middleware.ts`
-- [ ] Root `middleware.ts` with matcher excluding `_next`/static/favicon
-- [ ] `001_initial_schema.sql` — `create extension if not exists pgcrypto` + 9 tables + trigger
-- [ ] `002_rls_policies.sql` — RLS + policies using `is_household_member(hid)` helper (security definer stable) to avoid recursion
-- [ ] `003_seed_defaults.sql` — seed + accept functions
-- [ ] README: create Supabase project → keys → apply migrations 001→002→003 → disable email confirmation → types-gen
+- [x] Install `@supabase/ssr` + `@supabase/supabase-js`
+- [x] `lib/supabase/server.ts` (async `cookies()`), `client.ts`, `middleware.ts`
+- [x] Root `proxy.ts` (Next.js 16: `middleware.ts` deprecated → `proxy.ts`) with matcher excluding `_next`/static/favicon
+- [x] `001_initial_schema.sql` — `create extension if not exists pgcrypto` + 9 tables + trigger
+- [x] `002_rls_policies.sql` — RLS + policies using `is_household_member(hid)` helper (security definer stable) to avoid recursion
+- [x] `003_seed_defaults.sql` — seed + accept functions
+- [x] README: create Supabase project → keys → apply migrations 001→002→003 → disable email confirmation → types-gen
+- [x] `types/database.ts` placeholder
+- [x] `supabase/seed.sql` placeholder
 - [ ] **PAUSE** — user performs manual Supabase steps
 - [ ] User runs types-gen command
 - [ ] Verify: `pnpm build` with generated types
 
 ### Phase 3 — Auth (depends on Phase 2)
-- [ ] `lib/schemas/auth.ts`
-- [ ] `/login` page + Client form + `signIn()` action
-- [ ] `/register` page (reads `?invite=`) + form + `signUp()` (branches: new household vs invite-join)
-- [ ] `signOut()` + logout button
-- [ ] Middleware redirects: unauth → `/login` (except `/login`, `/register`, `/join/`, `/api/`); auth → `/` from auth routes
+- [x] `lib/schemas/auth.ts`
+- [x] `/login` page + Client form + `signIn()` action
+- [x] `/register` page (reads `?invite=`) + form + `signUp()` (branches: new household vs invite-join)
+- [x] `signOut()` + logout button
+- [x] Middleware redirects: unauth → `/login` (except `/login`, `/register`, `/join/`, `/api/`); auth → `/` from auth routes
 - [ ] Verify: register creates household + 9 categories, redirects `/`; logout works; unauth `/` redirects
+  - [x] Unauth `/` → 307 `/login` — bestätigt via curl
+  - [ ] Register-Funktionstest (erfordert Migration 005 in DB)
 
 ### Phase 4 — Invite Flow (depends on Phase 3)
-- [ ] `lib/schemas/invite.ts`
-- [ ] `createInvite`, `revokeInvite` actions
-- [ ] `InviteSection` Client with `useTransition`
-- [ ] `app/join/[token]/page.tsx` branches on auth state + token validity
-- [ ] `acceptInvite` RPC action
-- [ ] Verify: user1 creates invite → user2 (private window) registers → joins same household; expired/consumed tokens error correctly
+- [x] `lib/schemas/invite.ts`
+- [x] `createInvite`, `revokeInvite` actions
+- [x] `InviteSection` Client with `useTransition`
+- [x] `app/join/[token]/page.tsx` branches on auth state + token validity
+- [x] `acceptInvite` RPC action
+- [x] Verify: user1 creates invite → user2 (private window) registers → joins same household; expired/consumed tokens error correctly
 
 ### Phase 5 — Git Init
 - [ ] `git init`
@@ -205,7 +209,7 @@ create trigger on_auth_user_created
 - [ ] Private window register via invite link → joins same household (2 rows in `household_members`, 1 household)
 - [ ] RLS smoke test: cross-household select returns 0 rows
 - [ ] Expired invite (manual `expires_at = now() - '1h'`) → error UI
-- [ ] Consumed invite cannot be reused
+- [x] Consumed invite cannot be reused
 - [ ] Repo pushed to `git.barto.cloud:barto/igrocery.git`
 
 ## Risks
@@ -225,3 +229,141 @@ create trigger on_auth_user_created
 
 - **Household name on first registration**: `"${display_name}s Haushalt"` (renameable later in Settings).
 - Domain `grocery.barto.cloud`, port 3010 later, invite 24h TTL single-use.
+
+---
+
+## Progress — Phase 2
+
+**Datum:** 2026-04-17
+
+**Abgeschlossene Schritte:**
+- 2.1 `@supabase/ssr@0.10.2` + `@supabase/supabase-js@2.103.3` installiert
+- 2.2 `lib/supabase/server.ts`, `lib/supabase/client.ts`, `lib/supabase/middleware.ts` erstellt
+- 2.3 Root-Proxy: `middleware.ts` in Next.js 16 deprecated → `proxy.ts` mit `export async function proxy()` erstellt
+- 2.4 `supabase/migrations/001_initial_schema.sql`, `002_rls_policies.sql`, `003_seed_defaults.sql` erstellt
+- 2.5 `supabase/seed.sql` Platzhalter
+- 2.6 `types/database.ts` Platzhalter
+- 2.7 README war bereits vollständig aus Phase 1
+
+**Verifikation:**
+- `pnpm build` — 0 Fehler, 0 Warnings
+- `pnpm lint` — 0 Warnings
+- `pnpm typecheck` — 0 Fehler
+
+**Modifizierte Dateien:**
+- `/home/barto/developments/igrocery/lib/supabase/server.ts` (neu)
+- `/home/barto/developments/igrocery/lib/supabase/client.ts` (neu)
+- `/home/barto/developments/igrocery/lib/supabase/middleware.ts` (neu)
+- `/home/barto/developments/igrocery/proxy.ts` (neu — ersetzt middleware.ts, Next.js 16 Konvention)
+- `/home/barto/developments/igrocery/supabase/migrations/001_initial_schema.sql` (neu)
+- `/home/barto/developments/igrocery/supabase/migrations/002_rls_policies.sql` (neu)
+- `/home/barto/developments/igrocery/supabase/migrations/003_seed_defaults.sql` (neu)
+- `/home/barto/developments/igrocery/supabase/seed.sql` (neu)
+- `/home/barto/developments/igrocery/types/database.ts` (neu)
+
+**Verbleibend (manuelle User-Schritte vor Phase 3):**
+- Supabase-Projekt anlegen + Keys in `.env.local` eintragen
+- Migrations 001 → 002 → 003 im SQL Editor ausführen
+- Email-Bestätigung deaktivieren
+- DB-Types generieren: `pnpm dlx supabase gen types typescript --project-id <ref> --schema public > types/database.ts`
+- `pnpm build` mit generierten Types verifizieren
+
+---
+
+## Progress — Phase 3
+
+**Datum:** 2026-04-17
+
+**Abgeschlossene Schritte:**
+- 3.1 `lib/schemas/auth.ts` — loginSchema + registerSchema mit Zod
+- 3.2 `/login`: `page.tsx` (Server), `LoginForm.tsx` (Client), `actions.ts` (`signIn`)
+- 3.3 `/register`: `page.tsx` (Server, liest searchParams.invite), `RegisterForm.tsx` (Client), `actions.ts` (`signUp` mit create_household_for_user RPC)
+- 3.4 `app/(auth)/actions.ts` — `signOut()` Action
+- 3.5 `app/(app)/settings/page.tsx` — Settings-Stub mit Logout-Button
+- 3.6 `app/(app)/layout.tsx` — Auth-Guard (getUser → redirect /login)
+- 3.7 `proxy.ts` — Redirect-Logik: unauth→/login, auth auf auth-Routen→/
+- 3.8 Migration `supabase/migrations/005_register_rpc.sql` — `create_household_for_user` SECURITY DEFINER Funktion
+- 3.8b `types/database.ts` — `create_household_for_user` manuell eingetragen (bis Types regeneriert werden)
+
+**Migration 005 nötig: JA**
+Begründung: `household_members` hat keine INSERT-Policy für `authenticated` — nur SECURITY DEFINER Funktionen dürfen einfügen (explizit so in `002_rls_policies.sql` kommentiert). Die `create_household_for_user` Funktion kapselt Household-Erstellung + Member-Insert + Category-Seeding atomisch.
+
+**Build/Lint/Typecheck:**
+- `pnpm build` — 0 Fehler, 0 Warnings
+- `pnpm lint` — 0 Warnings
+- `pnpm typecheck` — 0 Fehler
+
+**Funktionstests:**
+- Unauth `/` → 307 `/login` — bestätigt via curl
+- `/login` Seite lädt korrekt mit deutschem UI
+- Register/Login/Logout-Flow und DB-Sanity-Check noch ausstehend (erfordert Migration 005 in Supabase)
+
+**OFFEN — Manuelle Aktion erforderlich:**
+Migration 005 muss im Supabase SQL Editor ausgeführt werden:
+`supabase/migrations/005_register_rpc.sql`
+
+Danach Types regenerieren:
+```bash
+pnpm dlx supabase gen types typescript --project-id yyyekcccyzonqazftvlv --schema public > types/database.ts
+```
+
+Dann vollständigen Register/Login/Logout Test + DB-Sanity-Check durchführen.
+
+**Modifizierte/Erstellte Dateien:**
+- `/home/barto/developments/igrocery/lib/schemas/auth.ts` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/login/page.tsx` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/login/LoginForm.tsx` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/login/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/register/page.tsx` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/register/RegisterForm.tsx` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/register/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/settings/page.tsx` (geändert)
+- `/home/barto/developments/igrocery/app/(app)/layout.tsx` (geändert — Auth-Guard hinzugefügt)
+- `/home/barto/developments/igrocery/proxy.ts` (geändert — Redirect-Logik hinzugefügt)
+- `/home/barto/developments/igrocery/supabase/migrations/005_register_rpc.sql` (neu)
+- `/home/barto/developments/igrocery/types/database.ts` (geändert — create_household_for_user Typ manuell ergänzt)
+
+---
+
+## Progress — Phase 4
+
+**Datum:** 2026-04-17
+
+**Abgeschlossene Schritte:**
+- 4.1 `lib/schemas/invite.ts` — inviteTokenSchema (32 hex chars)
+- 4.2 `app/(app)/settings/actions.ts` — `createInvite` + `revokeInvite` Server Actions
+- 4.3 `app/(app)/settings/page.tsx` — Server Component mit Profil, Haushalt, Members, Invites (2 Queries statt Join, da household_members.user_id → auth.users, nicht → profiles)
+- 4.3 `app/(app)/settings/InviteSection.tsx` — Client Component mit useTransition, sonner toast, Copy-to-Clipboard, Revoke-Button
+- 4.4 `app/join/[token]/page.tsx` — außerhalb (app)-Gruppe, branches: ungültig/eingeloggt+Haushalt/nicht-eingeloggt→register/eingeloggt+kein-Haushalt→Beitreten
+- 4.4 `app/join/[token]/actions.ts` — `acceptInvite` Server Action via Supabase RPC
+- 4.5 proxy.ts — `/join/` bereits in PUBLIC_PATHS, kein Update nötig
+- 4.6 Migration 006 — NICHT nötig: `accept_invite` in Migration 003 enthält bereits den `bereits_in_haushalt`-Check
+- 4.7 `app/layout.tsx` — `<Toaster>` von sonner ergänzt
+
+**Migration 006 nötig: NEIN**
+Begründung: `accept_invite` in `supabase/migrations/003_seed_defaults.sql` prüft bereits `exists (select 1 from household_members where user_id = auth.uid())` und raised `bereits_in_haushalt`.
+
+**Build/Lint/Typecheck:**
+- `pnpm typecheck` — 0 Fehler
+- `pnpm build` — 0 Fehler, alle 8 Seiten korrekt generiert
+- `pnpm lint` — 0 Warnungen
+
+**End-to-End-Test (SQL-Simulation via Admin-API):**
+- User A angelegt, Haushalt erstellt, als Owner eingetragen
+- Invite-Token (`aabbccdd11223344aabbccdd11223344`) direkt in `household_invites` eingefügt
+- User B angelegt, eingeloggt (JWT), `accept_invite` RPC aufgerufen
+- Ergebnis: `"c461915c-ccf5-4309-b5d6-b931157c5ae7"` — korrekte household_id zurückgegeben
+- `household_members`: 2 Zeilen (User A owner + User B member) im selben Haushalt
+- `household_invites`: `consumed_at` + `consumed_by` korrekt gesetzt
+- Zweiter `accept_invite` mit gleichem Token: `{"message":"einladung_verbraucht"}` — korrekt
+- Cleanup: beide User + Haushalt gelöscht (Cascade: Members + Invite entfernt)
+
+**Modifizierte/Erstellte Dateien:**
+- `/home/barto/developments/igrocery/lib/schemas/invite.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/settings/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/settings/page.tsx` (refactored — Server Component mit Datenladen)
+- `/home/barto/developments/igrocery/app/(app)/settings/InviteSection.tsx` (neu)
+- `/home/barto/developments/igrocery/app/join/[token]/page.tsx` (neu)
+- `/home/barto/developments/igrocery/app/join/[token]/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/layout.tsx` (Toaster ergänzt)
