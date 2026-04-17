@@ -1,0 +1,2 @@
+-- Optional: local dev seed data. Populated manually during development.
+-- Do not commit sensitive data here.
