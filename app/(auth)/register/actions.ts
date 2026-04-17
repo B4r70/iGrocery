@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { registerSchema } from "@/lib/schemas/auth";
 
@@ -45,6 +46,12 @@ export async function signUp(formData: FormData) {
 
     if (inviteError) {
       await supabase.auth.signOut();
+      // Remove the orphaned auth user so the email address is not blocked permanently.
+      try {
+        await createAdminClient().auth.admin.deleteUser(authData.user.id);
+      } catch (rollbackErr) {
+        console.error("signUp rollback: deleteUser fehlgeschlagen", rollbackErr);
+      }
       return { error: "Einladung ungültig oder abgelaufen" };
     }
   } else {
@@ -55,6 +62,12 @@ export async function signUp(formData: FormData) {
 
     if (hhError) {
       await supabase.auth.signOut();
+      // Remove the orphaned auth user so the email address is not blocked permanently.
+      try {
+        await createAdminClient().auth.admin.deleteUser(authData.user.id);
+      } catch (rollbackErr) {
+        console.error("signUp rollback: deleteUser fehlgeschlagen", rollbackErr);
+      }
       return { error: "Haushalt konnte nicht erstellt werden" };
     }
   }

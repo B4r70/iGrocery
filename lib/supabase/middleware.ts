@@ -6,8 +6,17 @@ import type { Database } from "@/types/database";
  * Refreshes the Supabase session and syncs auth cookies between
  * the incoming request and the outgoing response.
  * Must be called in root middleware.ts for every request.
+ *
+ * Returns both the response (with updated cookies) and the Supabase client
+ * so callers can reuse the same client for subsequent auth checks —
+ * avoiding a second client that reads stale request cookies after token refresh.
  */
-export async function updateSession(request: NextRequest) {
+export async function updateSession(
+  request: NextRequest,
+): Promise<{
+  response: NextResponse;
+  supabase: ReturnType<typeof createServerClient<Database>>;
+}> {
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -39,5 +48,5 @@ export async function updateSession(request: NextRequest) {
   // It ensures the session token is kept alive and written back to cookies.
   await supabase.auth.getUser();
 
-  return supabaseResponse;
+  return { response: supabaseResponse, supabase };
 }

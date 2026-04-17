@@ -45,7 +45,12 @@ export function BottomNav() {
     >
       <ul className="flex">
         {tabs.map(({ href, label, Icon, IconActive }) => {
-          const isActive = pathname === href;
+          const isActive =
+            href === "/"
+              ? pathname === "/" ||
+                pathname.startsWith("/stores") ||
+                pathname.startsWith("/lists")
+              : pathname.startsWith(href);
           return (
             <li key={href} className="flex-1">
               <Link

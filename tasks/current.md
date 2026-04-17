@@ -1,369 +1,428 @@
-# Milestone 1 — Setup + Supabase & Auth
+# Milestone 2 — Stores, Lists, Items, Favorites
 
 **Complexity:** Large
-**Mode:** Phased (5 phases, each with its own verification gate)
+**Mode:** Phased (6 phases, each with its own quality gate)
 
 ## Summary
 
-Bootstrap Next.js 15 App-Router project with strict TypeScript, Tailwind, shadcn/ui, Heroicons, next-themes, react-hook-form+zod, Supabase SSR. Create DB schema (9 tables) with RLS, default-category seeding, Email/Password Auth (Login/Register/Logout), Auth middleware, and household-invite flow (`/settings` stub + `/join/[token]`). At end: a logged-in user lands on empty home shell with BottomNav; a second user can join the household via invite link.
+Vollständige dreistufige Navigation (Home → Store → List → Items) nach Apple-Reminders-Ästhetik. Stores-CRUD mit Icon-Picker und Farb-Palette. Pro Store: Shopping-Lists mit Active/History/Deleted-Sections und Soft-Delete. Pro Liste: Items mit Checkbox, Kategorie, Menge, Preis, Angebot-Flag, Notiz. Complete-Flow (letzte Position abgehakt → Toast mit Undo → Status `completed`). Favorites automatisch aus Item-Adds generiert, Vorschläge im New-Item-Dialog. Categories pro Haushalt editierbar in Settings. Zusätzlich drei Minor-Fixes aus Milestone 1 (proxy.ts Cookie-Race, households DELETE-Policy, signUp-Rollback).
 
 ## Scope
 
 ### Included
-- Phase 1: Next.js project init, tooling, base layout, BottomNav skeleton, folder structure, env template, README
-- Phase 2: Supabase migrations (tables, RLS, seed function, invite table), types/database.ts, Supabase clients (server/browser/middleware)
-- Phase 3: `/login`, `/register`, logout action, auth middleware + redirect rules
-- Phase 4: Invite mechanism — `household_invites` table already in migration 001, `/settings` page stub with generate-token button (server action), `/join/[token]` page with accept-action
-- Phase 5: Git init, initial commit, remote on `git.barto.cloud:barto/igrocery.git`
+- Stores: List, Create, Edit, Delete (Home + Detail-Header)
+- StoreIconPicker: curated Heroicons-Map (20 Icons laut Konzept)
+- Store-Farbe: 8-Farben-Palette (CSS-Variable-gebunden + Tailwind-Safelist)
+- Shopping-Lists: New, Soft-Delete, Restore, Hard-Delete, Complete, Reopen
+- List-Sections: Active / History (30 Tage Default) / Deleted (einklappbar, default collapsed außer Active)
+- List-Items: Create, Update (all fields), Check/Uncheck, Delete
+- NewItemDialog mit Autocomplete aus Favoriten (debounced, 2+ Zeichen, 8 Treffer)
+- Favorites Auto-Logik: beim Item-Create upsert mit usage_count++
+- Complete-Flow: Button + Toast-Undo (5s) + Auto-Complete bei letztem Check
+- Categories: List, Create, Rename, Delete, Reorder (↑/↓) in Settings
+- Totals: live im List-Header ("X offen · Y erledigt" + Summe)
+- Minor-Fix 1: proxy.ts nutzt updateSession-Client statt Second-Client
+- Minor-Fix 2: households DELETE-Policy (explizit false — Household-Delete nicht Teil dieses Milestones)
+- Minor-Fix 3: signUp-Rollback via Admin-API (Service-Role-Key wird endlich genutzt)
 
 ### Excluded
-- Stores / Lists / Items / Favorites CRUD (Milestones 3–6)
-- Stats (Milestone 7)
-- Docker, Cloudflare Tunnel, production deploy (Milestone 8)
-- PWA manifest (later)
-- Profile edit UI (later settings milestone)
-- Password reset / magic link (out of scope per concept)
+- Stats/`/stats` (Milestone 7)
+- Drag-and-Drop (Kategorien und Items)
+- Realtime-Sync
+- Household-Rename / Delete
+- Favoriten-Verwaltungs-UI (Rename/Delete einzelner Favoriten) — nur Auto-Erzeugung in diesem Milestone
+- Monatsübersicht und Charts
+- PWA/Manifest
+- Docker/Deployment
 
-## Product Decisions (resolved before planning)
+## Product Decisions
 
-- **Supabase Cloud** — user creates project manually, provides URL + anon key + service-role key via `.env.local`
-- **Invite-only registration** — enforced via Supabase Dashboard "Allow new users to sign up" disabled after both users registered; `/register` route still exists
-- **Invite tokens** — generated in `/settings`, link to `/join/[token]`, 24h TTL, single-use
-- **Local dev port** — 3000 (production 3010:3000 later)
-- **Domain** — `grocery.barto.cloud` (Cloudflare Tunnel in later deploy milestone)
-- **Git remote** — `git@git.barto.cloud:barto/igrocery.git` (repo does not exist yet, created at end of milestone)
-
-## Planner Decisions
-
-### Q1: Invite mechanism in Milestone 1 or later?
-**Decision: In Milestone 1.** Rationale:
-- Without it, user 2 cannot onboard without manual DB hackery — concept requires two users from day one
-- The `household_invites` table is trivial (5 columns), costs almost nothing to add to migration 001
-- `/join/[token]` is a single page with one server action; deferring it creates a gap where user 1 has nothing testable
-- `/settings` is needed as a minimal shell anyway (BottomNav links to it)
-
-Scope of invite stub in this milestone:
-- Token generation button + "Copy invite link" UI on `/settings`
-- Listing of active (non-expired, non-consumed) invites with revoke action
-- `/join/[token]` page: if logged out → redirect to `/register?invite=<token>`; if logged in but already in a household → error; if logged in no household → insert household_member + consume token
-- Register flow reads `?invite=` query param; if present, joins existing household instead of creating a new one
-
-### Q2: Auto-generate Supabase types or handwritten `types/database.ts`?
-**Decision: CLI-generated.** Command in README:
-```bash
-pnpm dlx supabase gen types typescript --project-id <project-ref> --schema public > types/database.ts
-```
-Checked into git. Regenerated after each migration. Handwriting types for 9 tables is wasteful and drifts.
-
-### Q3: Seed strategy — DB trigger or server action?
-**Decision: Hybrid.**
-- **Profile row**: DB trigger on `auth.users` INSERT — auto-creates `profiles` entry so we never have orphaned auth users. This is plumbing, not business logic.
-- **Household + members + default categories + display_name**: Server action in `/register`. Reason: we need to know whether the user came via invite token (join existing household) or not (create new household). A trigger cannot access request-scoped invite context cleanly.
-
-Flow:
-1. `signUp()` → auth.users row inserted → trigger fires → `profiles` row with `display_name = ''` created
-2. Server action then: `UPDATE profiles SET display_name = ...`, either `INSERT households` + `INSERT household_members` + seed categories, or (invite path) consume token + `INSERT household_members`
+- History-Default: 30 Tage, Toggle "Alle anzeigen" via Query-Param
+- Favorites: auto aus Item-Create (case-insensitive Title-Match), kein manuelles Kuratieren
+- Categories-Reorder: kompakt-Layout — ChevronUp/Down (36px) links + Tap-auf-Name = Inline-Edit + Delete rechts
+- Leere Listen: erlaubt, kein Auto-Delete
+- Offer-Flag: `TagIcon` (Heroicons) inline nach Titel, `text-orange-500`, `aria-label="Angebot"`, kein Text-Badge, keine Sortierung
+- Items: auto sort_order, kein manuelles Reorder
+- Default-Listentitel: "Einkauf TT.MM.JJJJ" bei Create
+- Soft-Delete: `deleted_at IS NOT NULL` = gelöscht, in Deleted-Section sichtbar, restorebar
+- Hard-Delete: Cascade-Delete der Liste (+ Items) erst nach User-Confirm in Deleted-Section
+- **Complete-Flow (M1-Entscheidung):** Auto-Trigger mit **30s**-Delay nach letztem Check. Toast "Alle Positionen erledigt · Liste abschließen in 30s · Rückgängig". Tab-Close = kein Auto-Complete (akzeptiert). Manueller Button als Primärweg immer verfügbar.
+- **Inline-Edit Titel (M2):** `onBlur` + `Enter` = save · `Escape` = reset auf Original · Input scrollt bei Keyboard-Öffnung ins Bild · `min-w-[120px] max-w-full`
+- **Sections-Defaults:** Active open, History + Deleted closed (weicht von Konzept "alle closed" bewusst ab — pragmatischer)
+- **BottomNav Active-State:** `href === "/" ? pathname === "/" : pathname.startsWith(href)` → `/stores/*` und `/lists/*` = Home-Tab aktiv, `/settings/*` = Einstellungen-Tab
+- **Dark Mode:** StoreCard-Icon immer `text-white`, Farb-Klassen ggf. `opacity-80` im Dark Mode
+- **Safe-Area:** FAB `bottom-[calc(4rem+env(safe-area-inset-bottom))]`, Content-Bereich `pb-[calc(5rem+env(safe-area-inset-bottom))]`
+- **NewItemDialog "Speichern & weiter":** Titel leeren + fokussieren, Kategorie + Menge behalten
+- **Sidebar-Trigger (Mobile):** `Bars3Icon` im ListHeader oben-links, `aria-label="Andere Listen"`
+- **Dialog + Keyboard (iOS):** `max-h-[calc(100dvh-env(keyboard-inset-height))]` mit `dvh`
+- **Empty-State Stores:** "Noch keine Geschäfte · Tippe +, um zu starten"
+- **Hard-Delete Text:** 'Liste „{Titel}" und alle Positionen unwiderruflich löschen?'
+- **Autocomplete-Placeholder:** "Position suchen oder hinzufügen…"
+- **Undo-Toast-Text:** "Liste abgeschlossen · Rückgängig"
+- **Back-Button** in Store-Detail und List-Detail (oben-links, `ArrowLeftIcon`)
+- **Alle-abgehakt + Erledigt-Gruppe-eingeklappt:** Einblendung "Alle Positionen erledigt · Liste abschließen" statt leere Ansicht
 
 ## Affected Files
 
-### Project scaffolding (Phase 1)
-- `package.json`, `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`, `postcss.config.mjs`, `components.json`, `eslint.config.mjs`, `.gitignore`, `.env.example`, `README.md`
-- `app/layout.tsx`, `app/globals.css`, `app/(auth)/layout.tsx`, `app/(app)/layout.tsx`
-- `app/(app)/page.tsx`, `app/(app)/stats/page.tsx`, `app/(app)/settings/page.tsx`
-- `components/layout/BottomNav.tsx`, `components/theme-provider.tsx`, `lib/utils.ts`
+### Migration (Phase 1)
+- `supabase/migrations/006_milestone2_helpers.sql` — upsert_favorite + households_delete Policy
 
-### shadcn base components (Phase 1)
-- `components/ui/` — button, input, label, form, card, toast, toaster, use-toast, dialog
+### Types (Phase 1)
+- `types/database.ts` — regeneriert nach Migration 006
 
-### Supabase layer (Phase 2)
-- `lib/supabase/server.ts`, `client.ts`, `middleware.ts`
-- `middleware.ts` (root)
-- `types/database.ts` (generated, committed)
-- `supabase/migrations/001_initial_schema.sql` — tables + invites + pgcrypto + profile trigger
-- `supabase/migrations/002_rls_policies.sql` — RLS + policies
-- `supabase/migrations/003_seed_defaults.sql` — `seed_default_categories` + `accept_invite`
-- `supabase/seed.sql` — placeholder
+### Shared Library (Phase 1)
+- `lib/icons/storeIcons.ts` — curated Heroicons-Map (20 Icons outline+solid)
+- `lib/icons/storeColors.ts` — 8 Farben (hex + key + label)
+- `lib/schemas/store.ts`, `list.ts`, `item.ts`, `category.ts` — zod-Schemas
+- `lib/format.ts` — `formatCurrency`, `formatDate` (TT.MM.JJJJ)
+- `lib/lists/aggregate.ts` — `countOpen`, `countDone`, `sumTotal` (pure)
 
-### Auth (Phase 3)
-- `lib/schemas/auth.ts`
-- `app/(auth)/login/` — page, actions, LoginForm
-- `app/(auth)/register/` — page, actions, RegisterForm
-- `app/(auth)/actions.ts` — shared signOut
+### Stores (Phase 2)
+- `app/(app)/page.tsx` — Stores-Grid (umgeschrieben)
+- `app/(app)/actions.ts` — createStore/updateStore/deleteStore
+- `components/stores/{StoreCard,StoreIconPicker,StoreColorPicker,StoreFormFields,NewStoreDialog,EditStoreDialog,StoreGridFab}.tsx`
 
-### Invite (Phase 4)
-- `lib/schemas/invite.ts`
-- `app/(app)/settings/actions.ts`, `InviteSection.tsx`
-- `app/join/[token]/page.tsx`, `actions.ts`
+### Lists per Store (Phase 3)
+- `app/(app)/stores/[id]/page.tsx`
+- `app/(app)/stores/[id]/actions.ts` — createList/softDeleteList/restoreList/hardDeleteList/completeList/reopenList/updateListTitle
+- `components/lists/{ListRow,CollapsibleSection,NewListDialog,StoreHeader,ListHistoryToggle}.tsx`
 
-## Data Model Details
+### List Detail + Items (Phase 4)
+- `app/(app)/lists/[id]/page.tsx`
+- `app/(app)/lists/[id]/actions.ts`
+- `app/(app)/lists/[id]/favorites/route.ts` — JSON-Endpoint Autocomplete
+- `components/items/{ItemRow,ItemCheckbox,NewItemDialog,EditItemDialog,FavoriteAutocomplete,ItemsGroup,ListHeader}.tsx`
+- `components/lists/ListSidebar.tsx`
 
-### `household_invites` (migration 001)
+### Categories in Settings (Phase 5)
+- `app/(app)/settings/categories/page.tsx`
+- `app/(app)/settings/categories/actions.ts`
+- `components/categories/CategoryManager.tsx`
+- `app/(app)/settings/page.tsx` — Link ergänzt
+
+### Fixes (Phase 6)
+- `proxy.ts` — nutzt updateSession-Client
+- `lib/supabase/middleware.ts` — Rückgabe `{ response, supabase }`
+- `lib/supabase/admin.ts` (neu) — Service-Role-Client (Server-only!)
+- `app/(auth)/register/actions.ts` — `auth.admin.deleteUser()` im Rollback
+
+## Data Model (Migration 006)
+
 ```sql
-create table household_invites (
-  token text primary key,
-  household_id uuid not null references households on delete cascade,
-  created_by uuid not null references auth.users on delete cascade,
-  created_at timestamptz not null default now(),
-  expires_at timestamptz not null default now() + interval '24 hours',
-  consumed_at timestamptz,
-  consumed_by uuid references auth.users on delete set null
-);
-create index on household_invites (household_id);
-```
-
-RLS: SELECT/INSERT/UPDATE/DELETE restricted to household members. Public acceptance via `SECURITY DEFINER` function `accept_invite(token)` (atomic validate+consume, never exposes household_id).
-
-### Profile auto-create trigger (migration 001)
-```sql
-create function handle_new_user() returns trigger
-  language plpgsql security definer set search_path = public as $$
+create or replace function public.upsert_favorite(
+  p_store_id    uuid,
+  p_title       text,
+  p_quantity    text,
+  p_price       numeric(10,2),
+  p_category_id uuid
+) returns void
+  language plpgsql security definer set search_path = public
+as $$
+declare
+  v_normalized text := lower(btrim(p_title));
+  v_existing   uuid;
 begin
-  insert into profiles (id, display_name) values (new.id, '');
-  return new;
+  if not exists (
+    select 1 from stores s
+    join household_members hm on hm.household_id = s.household_id
+    where s.id = p_store_id and hm.user_id = auth.uid()
+  ) then
+    raise exception 'nicht_berechtigt';
+  end if;
+
+  select id into v_existing
+    from favorites
+    where store_id = p_store_id
+      and lower(btrim(title)) = v_normalized
+    limit 1;
+
+  if v_existing is not null then
+    update favorites
+      set usage_count = usage_count + 1,
+          default_quantity = coalesce(p_quantity, default_quantity),
+          default_price    = coalesce(p_price, default_price),
+          category_id      = coalesce(p_category_id, category_id)
+      where id = v_existing;
+  else
+    insert into favorites (store_id, title, default_quantity, default_price, category_id, usage_count)
+      values (p_store_id, btrim(p_title), p_quantity, p_price, p_category_id, 1);
+  end if;
 end;
 $$;
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function handle_new_user();
-```
+grant execute on function public.upsert_favorite(uuid, text, text, numeric, uuid) to authenticated;
 
-### Default categories (migration 003)
-`seed_default_categories(p_household uuid)` inserts 9 rows: Obst & Gemüse, Milchprodukte, Fleisch & Fisch, Backwaren, Getränke, Tiefkühl, Drogerie, Süßigkeiten, Sonstiges.
+create policy "households_delete"
+  on households for delete
+  to authenticated
+  using (false);
+```
 
 ## UX Placement
 
-**BottomNav** — Home / Statistik / Einstellungen, in `(app)/layout.tsx`, `usePathname()` for active tab. Hidden on `/join/[token]` (outside `(app)` group).
+### Home `/` — Stores-Grid
+- Grid `grid-cols-2 lg:grid-cols-3 xl:grid-cols-4`, farbige Icon-Cards
+- FAB bottom-right über BottomNav
 
-**Settings page (minimum viable):**
-- "Mein Profil" — display_name + email readonly
-- "Haushalt" — name + member list
-- "Partner einladen" — button creates token, shows `https://grocery.barto.cloud/join/<token>` + Copy button + active-invites table with revoke
-- "Abmelden" — logout button
+### Store-Detail `/stores/[id]`
+- Header: Icon + Name + Edit
+- Sections: Aktiv (open), History (closed), Gelöscht (closed)
+
+### List-Detail `/lists/[id]`
+- Mobile: full-width + Sheet-Sidebar
+- Desktop (lg+): Sidebar links (240px) + Hauptbereich
+- Header: Datum · Store · inline-editierbarer Titel · Counter + Summe + Complete-Button
+- Items gruppiert nach Kategorie + separate "Erledigt"-Gruppe
+
+### `/settings/categories`
+- Subroute mit Zurück-Link, Liste mit Inline-Edit + ↑/↓
 
 ## Implementation Steps
 
-### Phase 1 — Next.js + Tooling
-- [ ] `pnpm create next-app@latest . --typescript --tailwind --app --src-dir=false --import-alias "@/*" --eslint`
-- [ ] tsconfig: `"strict": true`, `"noUncheckedIndexedAccess": true`
-- [ ] Add deps: next-themes, @heroicons/react, react-hook-form, zod, @hookform/resolvers, clsx, tailwind-merge, class-variance-authority
-- [ ] `pnpm dlx shadcn@latest init` (neutral, CSS variables, zinc)
-- [ ] `pnpm dlx shadcn@latest add button input label form card toast dialog`
-- [ ] Root layout with ThemeProvider, `lang="de"`, `suppressHydrationWarning`
-- [ ] Route groups `(auth)` + `(app)` with layouts
-- [ ] BottomNav ≥44px touch, active via `usePathname`
-- [ ] Placeholder pages in German
-- [ ] `.env.example` + `README.md`
-- [ ] Verify: `pnpm build`, `pnpm lint`, `pnpm dev` all pass
+### Phase 1 — Migration + Shared Libs
+- [x] `supabase/migrations/006_milestone2_helpers.sql`
+- [x] `lib/icons/storeIcons.ts` (20 Icons)
+- [x] `lib/icons/storeColors.ts` (8 Farben)
+- [x] `lib/schemas/{store,list,item,category}.ts`
+- [x] `lib/format.ts` + `lib/lists/aggregate.ts`
+- [x] `pnpm build && pnpm lint` — 0 Fehler, 0 Warnungen
+- [ ] **PAUSE** — Migration 006 im Supabase SQL-Editor
+- [ ] Types regenerieren
 
-### Phase 2 — Supabase Layer (depends on Phase 1)
-- [x] Install `@supabase/ssr` + `@supabase/supabase-js`
-- [x] `lib/supabase/server.ts` (async `cookies()`), `client.ts`, `middleware.ts`
-- [x] Root `proxy.ts` (Next.js 16: `middleware.ts` deprecated → `proxy.ts`) with matcher excluding `_next`/static/favicon
-- [x] `001_initial_schema.sql` — `create extension if not exists pgcrypto` + 9 tables + trigger
-- [x] `002_rls_policies.sql` — RLS + policies using `is_household_member(hid)` helper (security definer stable) to avoid recursion
-- [x] `003_seed_defaults.sql` — seed + accept functions
-- [x] README: create Supabase project → keys → apply migrations 001→002→003 → disable email confirmation → types-gen
-- [x] `types/database.ts` placeholder
-- [x] `supabase/seed.sql` placeholder
-- [ ] **PAUSE** — user performs manual Supabase steps
-- [ ] User runs types-gen command
-- [ ] Verify: `pnpm build` with generated types
+### Phase 2 — Stores (Home)
+- [x] `app/(app)/actions.ts` CRUD
+- [x] StoreIconPicker/StoreColorPicker/StoreFormFields/NewStoreDialog/EditStoreDialog
+- [x] StoreCard mit active-lists-count Badge
+- [x] StoreGridFab
+- [x] `app/(app)/page.tsx` Grid
 
-### Phase 3 — Auth (depends on Phase 2)
-- [x] `lib/schemas/auth.ts`
-- [x] `/login` page + Client form + `signIn()` action
-- [x] `/register` page (reads `?invite=`) + form + `signUp()` (branches: new household vs invite-join)
-- [x] `signOut()` + logout button
-- [x] Middleware redirects: unauth → `/login` (except `/login`, `/register`, `/join/`, `/api/`); auth → `/` from auth routes
-- [ ] Verify: register creates household + 9 categories, redirects `/`; logout works; unauth `/` redirects
-  - [x] Unauth `/` → 307 `/login` — bestätigt via curl
-  - [ ] Register-Funktionstest (erfordert Migration 005 in DB)
+### Phase 3 — Shopping-Lists per Store
+- [x] 7 Actions (create/softDelete/restore/hardDelete/complete/reopen/updateTitle)
+- [x] CollapsibleSection, ListRow, StoreHeader, NewListDialog, ListHistoryToggle
+- [x] `stores/[id]/page.tsx` mit 3 Queries (Active/History/Deleted)
 
-### Phase 4 — Invite Flow (depends on Phase 3)
-- [x] `lib/schemas/invite.ts`
-- [x] `createInvite`, `revokeInvite` actions
-- [x] `InviteSection` Client with `useTransition`
-- [x] `app/join/[token]/page.tsx` branches on auth state + token validity
-- [x] `acceptInvite` RPC action
-- [x] Verify: user1 creates invite → user2 (private window) registers → joins same household; expired/consumed tokens error correctly
+### Phase 4 — List Detail + Items + Favorites
+- [x] Actions: createItem (ruft upsert_favorite), updateItem, toggleItem, deleteItem, completeList, reopenList, updateListTitle
+- [x] ItemCheckbox (Reminders-Style), ItemRow, EditItemDialog, ItemsGroup
+- [x] FavoriteAutocomplete (debounced 200ms), NewItemDialog mit "Speichern & weiter"
+- [x] `favorites/route.ts` JSON-GET
+- [x] ListHeader inline-edit + Counter + Summe
+- [x] ListSidebar (Desktop inline, Mobile Sheet)
+- [x] Complete-Auto-Flow: clientseitiger **30s**-Undo-Timer → `completeList()`. Toast zeigt Restzeit. Bei Tab-Close: Timer verloren (akzeptiert)
+- [x] Wenn alle offen=0 und Erledigt-Gruppe eingeklappt: Info-Block "Alle Positionen erledigt · Liste abschließen" einblenden
+- [x] Offer-Flag: `TagIcon` `text-orange-500` inline nach Titel
+- [x] BottomNav `isActive` erweitern: Subrouten-Match via `startsWith`
+- [x] FAB + Content-Padding via `env(safe-area-inset-bottom)`
+- [x] Dialog `max-h-[calc(100dvh-env(keyboard-inset-height))]` + `dvh`
+- [x] Back-Button in Detail-PageHeadern
 
-### Phase 5 — Git Init
-- [ ] `git init`
-- [ ] Initial commit (Conventional: `feat(setup): initialize iGrocery with Next.js 15, Supabase auth, and invite flow`)
-- [ ] User creates `igrocery` repo in Forgejo UI
-- [ ] `git remote add origin git@git.barto.cloud:barto/igrocery.git`
-- [ ] `git push -u origin main`
+### Phase 5 — Categories in Settings
+- [x] actions.ts create/rename/delete/moveUp/moveDown
+- [x] CategoryManager (Client)
+- [x] `/settings/categories/page.tsx`
+- [x] Settings-Link
+
+### Phase 6 — Minor-Fixes
+- [x] middleware.ts gibt `{ response, supabase }` zurück
+- [x] proxy.ts nutzt diesen Client
+- [x] households_delete Policy (in 006 enthalten)
+- [x] `lib/supabase/admin.ts` (Service-Role, Server-only)
+- [x] register/actions.ts — admin.deleteUser() im Rollback
 
 ## Manual Verification
 
-- [ ] `pnpm install` no warnings
-- [ ] `pnpm build` 0 errors, 0 warnings
-- [ ] `pnpm lint` 0 warnings
-- [ ] Unauth visit `/` → redirect `/login`
-- [ ] Register new email → profile + household + 9 categories → `/`
-- [ ] BottomNav Home/Stats/Settings, correct active state
-- [ ] System dark mode respected
-- [ ] Logout → `/login`; login → `/`
-- [ ] `/settings` generate invite, copy link
-- [ ] Private window register via invite link → joins same household (2 rows in `household_members`, 1 household)
-- [ ] RLS smoke test: cross-household select returns 0 rows
-- [ ] Expired invite (manual `expires_at = now() - '1h'`) → error UI
-- [x] Consumed invite cannot be reused
-- [ ] Repo pushed to `git.barto.cloud:barto/igrocery.git`
+- [ ] `pnpm build && pnpm lint && pnpm typecheck` alle 0
+- [ ] Stores: Create/Edit/Delete/RLS
+- [ ] Store-Detail: 3 Sections, Restore, History-Toggle
+- [ ] List-Detail: inline-edit, Counter, Autocomplete, "Speichern & weiter", Item-Check, Auto-Complete mit Undo
+- [ ] Categories: CRUD + Reorder + Delete von referenzierten Kats
+- [ ] Favorites Auto: case-insensitive Dedup, usage_count hochzählt
+- [ ] proxy.ts Token-Refresh
+- [ ] households_delete blockiert
+- [ ] signUp-Rollback: invalid invite hinterlässt keinen orphaned auth.user
 
 ## Risks
 
-### Technical
-- **Next.js 15 `cookies()` async** — must await. Developer consults Context7 for `@supabase/ssr` + Next 15 pattern before Phase 2.
-- **Server Action + middleware cookie sync** — standard `updateSession` pattern.
-- **Email confirmation default ON** — user disables in Supabase Dashboard. README documents.
-- **RLS recursion on `household_members`** — `is_household_member(hid)` helper (security definer stable) breaks recursion.
-- **Invite token security** — 32-char crypto-random, never leak household_id, atomic `accept_invite`.
+- **upsert_favorite SECURITY DEFINER** — expliziter Membership-Check eingebaut
+- **Complete-Undo-Timer** — clientseitig halten, Tab-Close = keep as-is (kein Lost-State)
+- **Tailwind Farben** — `style={{backgroundColor}}` statt dynamischer Klassen
+- **Next.js 16 searchParams** — Promise, await in Server Component
+- **Pausierungs-Punkt** zwischen Phase 1 und 2 für Migration + Types-Regen
+- **SERVICE_ROLE_KEY** nun produktiv — README ergänzen
 
-### Process
-- User performs manual steps before Phase 2 verification: create Supabase project, copy keys, apply migrations, disable email confirm, types-gen
-- Developer halts Phase 2 until user confirms
+## Open Questions
 
-## Resolved Decisions
-
-- **Household name on first registration**: `"${display_name}s Haushalt"` (renameable later in Settings).
-- Domain `grocery.barto.cloud`, port 3010 later, invite 24h TTL single-use.
+Keine blockierenden. Sechs Planer-Entscheidungen pragmatisch getroffen — siehe "Product Decisions".
 
 ---
 
-## Progress — Phase 2
+## Progress
 
-**Datum:** 2026-04-17
+**2026-04-17 — Phase 5 abgeschlossen**
 
-**Abgeschlossene Schritte:**
-- 2.1 `@supabase/ssr@0.10.2` + `@supabase/supabase-js@2.103.3` installiert
-- 2.2 `lib/supabase/server.ts`, `lib/supabase/client.ts`, `lib/supabase/middleware.ts` erstellt
-- 2.3 Root-Proxy: `middleware.ts` in Next.js 16 deprecated → `proxy.ts` mit `export async function proxy()` erstellt
-- 2.4 `supabase/migrations/001_initial_schema.sql`, `002_rls_policies.sql`, `003_seed_defaults.sql` erstellt
-- 2.5 `supabase/seed.sql` Platzhalter
-- 2.6 `types/database.ts` Platzhalter
-- 2.7 README war bereits vollständig aus Phase 1
+Erledigte Schritte:
+- `app/(app)/settings/categories/actions.ts` — createCategory (sort_order = max+1), renameCategory (Zod), deleteCategory (FK ON DELETE SET NULL), moveCategoryUp / moveCategoryDown (3-Schritt-Swap via temporärem negativen Wert)
+- `components/categories/AddCategoryForm.tsx` — Client Component, useTransition, Toast bei Fehler, Form-Reset nach Erfolg
+- `components/categories/CategoryManager.tsx` — Client Component, CategoryRow mit Inline-Edit (onBlur + Enter = save, Escape = reset), ChevronUp/Down disabled bei first/last, TrashIcon mit window.confirm
+- `app/(app)/settings/categories/page.tsx` — Server Component, Membership-Query, Kategorien sortiert nach sort_order ASC, Back-Link, AddCategoryForm, CategoryManager
+- `app/(app)/settings/page.tsx` — Link "Kategorien verwalten" → /settings/categories mit ChevronRightIcon ergänzt
+- TypeScript-Fix: form action mit Return-Typ war nicht kompatibel → AddCategoryForm als separater Client Component mit onSubmit-Handler
+- `pnpm build` — erfolgreich, 0 Fehler
+- `pnpm lint` — 0 Warnungen, 0 Fehler
 
-**Verifikation:**
-- `pnpm build` — 0 Fehler, 0 Warnings
-- `pnpm lint` — 0 Warnings
-- `pnpm typecheck` — 0 Fehler
-
-**Modifizierte Dateien:**
-- `/home/barto/developments/igrocery/lib/supabase/server.ts` (neu)
-- `/home/barto/developments/igrocery/lib/supabase/client.ts` (neu)
-- `/home/barto/developments/igrocery/lib/supabase/middleware.ts` (neu)
-- `/home/barto/developments/igrocery/proxy.ts` (neu — ersetzt middleware.ts, Next.js 16 Konvention)
-- `/home/barto/developments/igrocery/supabase/migrations/001_initial_schema.sql` (neu)
-- `/home/barto/developments/igrocery/supabase/migrations/002_rls_policies.sql` (neu)
-- `/home/barto/developments/igrocery/supabase/migrations/003_seed_defaults.sql` (neu)
-- `/home/barto/developments/igrocery/supabase/seed.sql` (neu)
-- `/home/barto/developments/igrocery/types/database.ts` (neu)
-
-**Verbleibend (manuelle User-Schritte vor Phase 3):**
-- Supabase-Projekt anlegen + Keys in `.env.local` eintragen
-- Migrations 001 → 002 → 003 im SQL Editor ausführen
-- Email-Bestätigung deaktivieren
-- DB-Types generieren: `pnpm dlx supabase gen types typescript --project-id <ref> --schema public > types/database.ts`
-- `pnpm build` mit generierten Types verifizieren
+Veränderte/neue Dateien:
+- `/home/barto/developments/igrocery/app/(app)/settings/categories/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/settings/categories/page.tsx` (neu)
+- `/home/barto/developments/igrocery/components/categories/CategoryManager.tsx` (neu)
+- `/home/barto/developments/igrocery/components/categories/AddCategoryForm.tsx` (neu)
+- `/home/barto/developments/igrocery/app/(app)/settings/page.tsx` (Link ergänzt)
 
 ---
 
-## Progress — Phase 3
+**2026-04-17 — Phase 4 abgeschlossen**
 
-**Datum:** 2026-04-17
+Erledigte Schritte:
+- `app/(app)/lists/[id]/actions.ts` — createItem (upsert_favorite non-blocking), updateItem, toggleItem, deleteItem, completeList, reopenList, updateListTitle
+- `app/(app)/lists/[id]/favorites/route.ts` — GET Handler, ILIKE-Suche, limit 8, order usage_count DESC
+- `app/(app)/lists/[id]/page.tsx` — Server Component, 5 Queries, Kategorie-Gruppen, Erledigt-Gruppe, CompleteWatcher, FAB, Empty State
+- `components/items/ItemCheckbox.tsx` — Reminders-Style Kreis, 44×44 Touch-Target, aria-checked, useTransition
+- `components/items/ItemRow.tsx` — Checkbox + Content-Tap → EditItemDialog, TagIcon für Angebot, DocumentTextIcon für Notiz, Subtitle Menge · Preis, Line-Through wenn erledigt
+- `components/items/EditItemDialog.tsx` — shadcn Dialog, react-hook-form + zodResolver, alle Felder, Confirm-Delete
+- `components/items/NewItemDialog.tsx` — FAB + Dialog, FavoriteAutocomplete, "Speichern & weiter" mit Kategorie+Menge behalten, focus via useEffect+State (kein titleRef in Render)
+- `components/items/FavoriteAutocomplete.tsx` — debounced 200ms, setState in async callback (kein setState-in-effect), Keyboard-Navigation ↑↓ Enter Escape
+- `components/items/ItemsGroup.tsx` — CollapsibleSection-Wrapper, Server Component
+- `components/items/ListHeader.tsx` — Back-Link, Sidebar-Trigger, Inline-Edit Titel, Counter + Summe, Complete/Reopen Button, allDoneHint Block
+- `components/items/CompleteWatcher.tsx` — 30s Auto-Complete Timer, sonner Toast mit Undo, Cancel bei Uncheck
+- `components/items/ListPageClient.tsx` — Client-Wrapper für Sidebar-Sheet-State
+- `components/lists/ListSidebar.tsx` — Desktop Aside (240px), Mobile Sheet via Bars3Icon
+- `types/database.ts` — upsert_favorite Args auf nullable (p_category_id, p_price, p_quantity) korrigiert
+- `lib/schemas/item.ts` — is_offer von `.default(false)` auf `.optional()` geändert (Resolver-Kompatibilität)
+- `pnpm build` — erfolgreich, 0 Fehler
+- `pnpm lint` — 0 Warnungen, 0 Fehler
 
-**Abgeschlossene Schritte:**
-- 3.1 `lib/schemas/auth.ts` — loginSchema + registerSchema mit Zod
-- 3.2 `/login`: `page.tsx` (Server), `LoginForm.tsx` (Client), `actions.ts` (`signIn`)
-- 3.3 `/register`: `page.tsx` (Server, liest searchParams.invite), `RegisterForm.tsx` (Client), `actions.ts` (`signUp` mit create_household_for_user RPC)
-- 3.4 `app/(auth)/actions.ts` — `signOut()` Action
-- 3.5 `app/(app)/settings/page.tsx` — Settings-Stub mit Logout-Button
-- 3.6 `app/(app)/layout.tsx` — Auth-Guard (getUser → redirect /login)
-- 3.7 `proxy.ts` — Redirect-Logik: unauth→/login, auth auf auth-Routen→/
-- 3.8 Migration `supabase/migrations/005_register_rpc.sql` — `create_household_for_user` SECURITY DEFINER Funktion
-- 3.8b `types/database.ts` — `create_household_for_user` manuell eingetragen (bis Types regeneriert werden)
-
-**Migration 005 nötig: JA**
-Begründung: `household_members` hat keine INSERT-Policy für `authenticated` — nur SECURITY DEFINER Funktionen dürfen einfügen (explizit so in `002_rls_policies.sql` kommentiert). Die `create_household_for_user` Funktion kapselt Household-Erstellung + Member-Insert + Category-Seeding atomisch.
-
-**Build/Lint/Typecheck:**
-- `pnpm build` — 0 Fehler, 0 Warnings
-- `pnpm lint` — 0 Warnings
-- `pnpm typecheck` — 0 Fehler
-
-**Funktionstests:**
-- Unauth `/` → 307 `/login` — bestätigt via curl
-- `/login` Seite lädt korrekt mit deutschem UI
-- Register/Login/Logout-Flow und DB-Sanity-Check noch ausstehend (erfordert Migration 005 in Supabase)
-
-**OFFEN — Manuelle Aktion erforderlich:**
-Migration 005 muss im Supabase SQL Editor ausgeführt werden:
-`supabase/migrations/005_register_rpc.sql`
-
-Danach Types regenerieren:
-```bash
-pnpm dlx supabase gen types typescript --project-id yyyekcccyzonqazftvlv --schema public > types/database.ts
-```
-
-Dann vollständigen Register/Login/Logout Test + DB-Sanity-Check durchführen.
-
-**Modifizierte/Erstellte Dateien:**
-- `/home/barto/developments/igrocery/lib/schemas/auth.ts` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/login/page.tsx` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/login/LoginForm.tsx` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/login/actions.ts` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/register/page.tsx` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/register/RegisterForm.tsx` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/register/actions.ts` (neu)
-- `/home/barto/developments/igrocery/app/(auth)/actions.ts` (neu)
-- `/home/barto/developments/igrocery/app/(app)/settings/page.tsx` (geändert)
-- `/home/barto/developments/igrocery/app/(app)/layout.tsx` (geändert — Auth-Guard hinzugefügt)
-- `/home/barto/developments/igrocery/proxy.ts` (geändert — Redirect-Logik hinzugefügt)
-- `/home/barto/developments/igrocery/supabase/migrations/005_register_rpc.sql` (neu)
-- `/home/barto/developments/igrocery/types/database.ts` (geändert — create_household_for_user Typ manuell ergänzt)
+Veränderte/neue Dateien:
+- `/home/barto/developments/igrocery/app/(app)/lists/[id]/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/lists/[id]/favorites/route.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/lists/[id]/page.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/ItemCheckbox.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/ItemRow.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/EditItemDialog.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/NewItemDialog.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/FavoriteAutocomplete.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/ItemsGroup.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/ListHeader.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/CompleteWatcher.tsx` (neu)
+- `/home/barto/developments/igrocery/components/items/ListPageClient.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/ListSidebar.tsx` (neu)
+- `/home/barto/developments/igrocery/types/database.ts` (upsert_favorite nullable Args)
+- `/home/barto/developments/igrocery/lib/schemas/item.ts` (is_offer optional)
 
 ---
 
-## Progress — Phase 4
+**2026-04-17 — Phase 3 abgeschlossen**
 
-**Datum:** 2026-04-17
-
-**Abgeschlossene Schritte:**
-- 4.1 `lib/schemas/invite.ts` — inviteTokenSchema (32 hex chars)
-- 4.2 `app/(app)/settings/actions.ts` — `createInvite` + `revokeInvite` Server Actions
-- 4.3 `app/(app)/settings/page.tsx` — Server Component mit Profil, Haushalt, Members, Invites (2 Queries statt Join, da household_members.user_id → auth.users, nicht → profiles)
-- 4.3 `app/(app)/settings/InviteSection.tsx` — Client Component mit useTransition, sonner toast, Copy-to-Clipboard, Revoke-Button
-- 4.4 `app/join/[token]/page.tsx` — außerhalb (app)-Gruppe, branches: ungültig/eingeloggt+Haushalt/nicht-eingeloggt→register/eingeloggt+kein-Haushalt→Beitreten
-- 4.4 `app/join/[token]/actions.ts` — `acceptInvite` Server Action via Supabase RPC
-- 4.5 proxy.ts — `/join/` bereits in PUBLIC_PATHS, kein Update nötig
-- 4.6 Migration 006 — NICHT nötig: `accept_invite` in Migration 003 enthält bereits den `bereits_in_haushalt`-Check
-- 4.7 `app/layout.tsx` — `<Toaster>` von sonner ergänzt
-
-**Migration 006 nötig: NEIN**
-Begründung: `accept_invite` in `supabase/migrations/003_seed_defaults.sql` prüft bereits `exists (select 1 from household_members where user_id = auth.uid())` und raised `bereits_in_haushalt`.
-
-**Build/Lint/Typecheck:**
-- `pnpm typecheck` — 0 Fehler
-- `pnpm build` — 0 Fehler, alle 8 Seiten korrekt generiert
+Erledigte Schritte:
+- `app/(app)/stores/[id]/actions.ts` — createList / softDeleteList / restoreList / hardDeleteList / completeList / reopenList / updateListTitle (Server Actions, Zod-Validierung, RLS-Scope via store_id)
+- `components/lists/CollapsibleSection.tsx` — Client Component, useState, ChevronDown-Animation, aria-expanded, headerExtra-Slot
+- `components/lists/ListRow.tsx` — Server Component, Context-abhängige Aktionsbuttons (active/history/deleted), inline `"use server"` forms
+- `components/lists/HardDeleteButton.tsx` — Client Component, window.confirm mit korrektem Text, useTransition
+- `components/lists/NewListDialog.tsx` — Client Component, FAB-Trigger, react-hook-form, zodResolver, Auto-Prefill "Einkauf TT.MM.JJJJ"
+- `components/lists/StoreHeader.tsx` — Server Component, Back-Link, Store-Icon-Badge, EditStoreDialogTrigger
+- `components/stores/EditStoreDialogTrigger.tsx` — Client-Wrapper damit StoreHeader Server Component bleibt
+- `components/lists/ListHistoryToggle.tsx` — Server Component, Link-Toggle zwischen 30d und all
+- `app/(app)/stores/[id]/page.tsx` — Next.js 16 async params/searchParams, 3 Queries (active/history/deleted), Item-Count-Aggregation, 3 CollapsibleSections, FAB, Empty-States
+- `pnpm build` — erfolgreich, 0 Fehler
 - `pnpm lint` — 0 Warnungen
 
-**End-to-End-Test (SQL-Simulation via Admin-API):**
-- User A angelegt, Haushalt erstellt, als Owner eingetragen
-- Invite-Token (`aabbccdd11223344aabbccdd11223344`) direkt in `household_invites` eingefügt
-- User B angelegt, eingeloggt (JWT), `accept_invite` RPC aufgerufen
-- Ergebnis: `"c461915c-ccf5-4309-b5d6-b931157c5ae7"` — korrekte household_id zurückgegeben
-- `household_members`: 2 Zeilen (User A owner + User B member) im selben Haushalt
-- `household_invites`: `consumed_at` + `consumed_by` korrekt gesetzt
-- Zweiter `accept_invite` mit gleichem Token: `{"message":"einladung_verbraucht"}` — korrekt
-- Cleanup: beide User + Haushalt gelöscht (Cascade: Members + Invite entfernt)
+Veränderte Dateien:
+- `/home/barto/developments/igrocery/app/(app)/stores/[id]/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/stores/[id]/page.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/CollapsibleSection.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/ListRow.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/HardDeleteButton.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/NewListDialog.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/StoreHeader.tsx` (neu)
+- `/home/barto/developments/igrocery/components/lists/ListHistoryToggle.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/EditStoreDialogTrigger.tsx` (neu)
 
-**Modifizierte/Erstellte Dateien:**
-- `/home/barto/developments/igrocery/lib/schemas/invite.ts` (neu)
-- `/home/barto/developments/igrocery/app/(app)/settings/actions.ts` (neu)
-- `/home/barto/developments/igrocery/app/(app)/settings/page.tsx` (refactored — Server Component mit Datenladen)
-- `/home/barto/developments/igrocery/app/(app)/settings/InviteSection.tsx` (neu)
-- `/home/barto/developments/igrocery/app/join/[token]/page.tsx` (neu)
-- `/home/barto/developments/igrocery/app/join/[token]/actions.ts` (neu)
-- `/home/barto/developments/igrocery/app/layout.tsx` (Toaster ergänzt)
+---
+
+**2026-04-17 — Phase 2 abgeschlossen**
+
+Erledigte Schritte:
+- `app/(app)/actions.ts` — createStore / updateStore / deleteStore (Server Actions, Zod-Validierung, household_id-Scope, RLS)
+- `components/stores/StoreIconPicker.tsx` — grid-cols-5, aria-pressed, selected-Ring
+- `components/stores/StoreColorPicker.tsx` — 8 Farb-Kreise, inline-style, ring on selected
+- `components/stores/StoreFormFields.tsx` — react-hook-form Controller für alle drei Felder
+- `components/stores/NewStoreDialog.tsx` — controlled open/onOpenChange, zodResolver, Toast on success
+- `components/stores/EditStoreDialog.tsx` — Defaults aus store-Prop, Löschen mit confirm-Step
+- `components/stores/StoreCard.tsx` — Client Component (wegen EditStoreDialog-State), farbiger Icon-Badge, active-lists-count
+- `components/stores/StoreGridFab.tsx` — FAB fixed bottom-right, öffnet NewStoreDialog
+- `app/(app)/page.tsx` — Stores-Grid, Membership-Check, active-lists-count per Store, Empty-State, FAB
+- `components/layout/BottomNav.tsx` — Active-State für `/stores/*` und `/lists/*` → Home-Tab
+- Bugfix: Zod v4 hat `error.errors` → `error.issues` geändert (in actions.ts korrigiert)
+- `pnpm build` — erfolgreich, 0 Fehler
+- `pnpm lint` — 0 Warnungen
+
+Veränderte Dateien:
+- `/home/barto/developments/igrocery/app/(app)/actions.ts` (neu)
+- `/home/barto/developments/igrocery/app/(app)/page.tsx` (umgeschrieben)
+- `/home/barto/developments/igrocery/components/stores/StoreIconPicker.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/StoreColorPicker.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/StoreFormFields.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/NewStoreDialog.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/EditStoreDialog.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/StoreCard.tsx` (neu)
+- `/home/barto/developments/igrocery/components/stores/StoreGridFab.tsx` (neu)
+- `/home/barto/developments/igrocery/components/layout/BottomNav.tsx` (Active-State)
+
+---
+
+**2026-04-17 — Phase 1 abgeschlossen (bis Pause-Punkt)**
+
+Erledigte Schritte:
+- `supabase/migrations/006_milestone2_helpers.sql` — `upsert_favorite` SECURITY DEFINER + `households_delete` Policy
+- `lib/icons/storeIcons.ts` — 20 Heroicons (outline + solid), semantische Keys
+- `lib/icons/storeColors.ts` — 8 Farben mit key/label/hex
+- `lib/schemas/store.ts` — storeCreateSchema / storeUpdateSchema
+- `lib/schemas/list.ts` — listCreateSchema / listUpdateSchema
+- `lib/schemas/item.ts` — itemCreateSchema / itemUpdateSchema
+- `lib/schemas/category.ts` — categoryCreateSchema / categoryUpdateSchema / categoryReorderSchema
+- `lib/format.ts` — formatCurrency (de-DE, EUR) + formatDate (TT.MM.JJJJ)
+- `lib/lists/aggregate.ts` — countOpen / countDone / sumTotal
+- `pnpm build` — erfolgreich, 0 Fehler
+- `pnpm lint` — 0 Warnungen
+
+Veränderte Dateien (neu):
+- `/home/barto/developments/igrocery/supabase/migrations/006_milestone2_helpers.sql`
+- `/home/barto/developments/igrocery/lib/icons/storeIcons.ts`
+- `/home/barto/developments/igrocery/lib/icons/storeColors.ts`
+- `/home/barto/developments/igrocery/lib/schemas/store.ts`
+- `/home/barto/developments/igrocery/lib/schemas/list.ts`
+- `/home/barto/developments/igrocery/lib/schemas/item.ts`
+- `/home/barto/developments/igrocery/lib/schemas/category.ts`
+- `/home/barto/developments/igrocery/lib/format.ts`
+- `/home/barto/developments/igrocery/lib/lists/aggregate.ts`
+
+Ausstehend (Pause-Punkt):
+- Migration 006 manuell im Supabase SQL-Editor ausführen
+- `pnpm supabase gen types` / Types-Regeneration durchführen
+
+---
+
+**2026-04-17 — Phase 6 abgeschlossen**
+
+Erledigte Schritte:
+- Fix 1: `lib/supabase/middleware.ts` — `updateSession()` gibt nun `{ response, supabase }` statt nur `response` zurück; Rückgabetyp explizit via `Promise<{ response: NextResponse; supabase: ReturnType<...> }>`
+- Fix 1: `proxy.ts` — zweiten `createServerClient`-Aufruf entfernt, `{ response, supabase }` aus `updateSession()` destrukturiert; `supabase.auth.getUser()` nutzt denselben Client, der auch für Cookie-Updates zuständig war
+- Fix 2: `households_delete` Policy — bereits in Migration 006 enthalten, kein Code-Change nötig
+- Fix 3: `lib/supabase/admin.ts` (neu) — `createAdminClient()` mit `SUPABASE_SERVICE_ROLE_KEY`, Server-only Guard (`typeof window !== "undefined"` → throw), `autoRefreshToken: false`, `persistSession: false`
+- Fix 3: `app/(auth)/register/actions.ts` — beide Rollback-Zweige (invite-Fehler + household-Fehler) rufen nach `signOut()` auch `createAdminClient().auth.admin.deleteUser(authData.user.id)` auf; Rollback-Fehler werden geloggt, aber die Error-Response bleibt unverändert
+- `pnpm build` — 0 Fehler
+- `pnpm lint` — 0 Warnungen
+
+Veränderte/neue Dateien:
+- `/home/barto/developments/igrocery/lib/supabase/middleware.ts` (Rückgabetyp erweitert)
+- `/home/barto/developments/igrocery/proxy.ts` (zweiten Client-Aufruf entfernt)
+- `/home/barto/developments/igrocery/lib/supabase/admin.ts` (neu)
+- `/home/barto/developments/igrocery/app/(auth)/register/actions.ts` (Rollback mit deleteUser)

@@ -1,7 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { createServerClient } from "@supabase/ssr";
-import type { Database } from "@/types/database";
 
 // Public routes that do not require authentication
 const PUBLIC_PATHS = ["/login", "/register", "/join/"];
@@ -17,26 +15,11 @@ function isPublicPath(pathname: string): boolean {
  * 3. Redirects authenticated users away from /login and /register to /.
  */
 export async function proxy(request: NextRequest) {
-  // First, let updateSession refresh the session and sync cookies.
-  const response = await updateSession(request);
+  // updateSession refreshes the session and returns both the response (with
+  // updated cookies) and the same Supabase client — reuse it here to avoid
+  // reading stale request cookies in a second client after token refresh.
+  const { response, supabase } = await updateSession(request);
   const { pathname } = request.nextUrl;
-
-  // Read the refreshed session from the response cookies via a lightweight client.
-  const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          // Read from the original request — updateSession already set them on response.
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // No-op: cookies were already set by updateSession above.
-        },
-      },
-    },
-  );
 
   const {
     data: { user },

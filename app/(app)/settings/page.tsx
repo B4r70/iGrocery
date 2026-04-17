@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ChevronRightIcon } from "@heroicons/react/24/outline";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
@@ -86,6 +88,17 @@ export default async function SettingsPage() {
       </section>
 
       <InviteSection invites={invites ?? []} appUrl={appUrl} />
+
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Kategorien</h2>
+        <Link
+          href="/settings/categories"
+          className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 text-sm transition-colors hover:bg-accent min-h-[44px]"
+        >
+          <span>Kategorien verwalten</span>
+          <ChevronRightIcon className="h-5 w-5 text-muted-foreground" />
+        </Link>
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Abmelden</h2>

@@ -349,6 +349,16 @@ export type Database = {
         Args: { p_household: string }
         Returns: undefined
       }
+      upsert_favorite: {
+        Args: {
+          p_category_id: string | null
+          p_price: number | null
+          p_quantity: string | null
+          p_store_id: string
+          p_title: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
